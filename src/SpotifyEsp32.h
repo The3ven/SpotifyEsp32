@@ -17,12 +17,14 @@
 //#define DISABLE_SIMPLIFIED
 
 
+#include <time.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <ArduinoJson.h>
+#include <sys/time.h>
 #include <esp_random.h>
+#include <ArduinoJson.h>
 #include "mbedtls/sha256.h"
 #include "mbedtls/base64.h"
+#include <WiFiClientSecure.h>
 
 
 #ifndef DISABLE_TRACKS
@@ -37,6 +39,50 @@ typedef enum {
   SPOTIFY_LOG_DEBUG,
   SPOTIFY_LOG_VERBOSE
 } spotify_log_level_t;
+
+struct SpotifyCurrentTrack {
+  bool isPlaying = false;
+  unsigned long long timestamp = 0;           // Spotify server timestamp (ms)
+  String fetchTimeLocal = "";                 // Local time when data was fetched
+
+  int progressMs = 0;
+  int durationMs = 0;
+  String trackName = "";
+  String trackId = "";
+  String trackUri = "";
+  bool explicitTrack = false;
+  int popularity = 0;
+
+  // Multiple Artists Support
+  static const int MAX_ARTISTS = 10;          // Adjust if needed
+  String artistNames[MAX_ARTISTS];
+  String artistIds[MAX_ARTISTS];
+  String artistUris[MAX_ARTISTS];
+  int artistCount = 0;
+
+  String albumName = "";
+  String albumId = "";
+  String albumUri = "";
+  String releaseDate = "";
+  String albumType = "";                      // album, single, etc.
+
+  String albumImageUrlLarge = "";
+  String albumImageUrlMedium = "";
+  String albumImageUrlSmall = "";
+
+  String contextType = "";                    // e.g., playlist, album, collection
+  String contextUri = "";
+
+  // === NEW: Direct Links ===
+  String trackLink = "";        // https://open.spotify.com/track/...
+  String albumLink = "";        // https://open.spotify.com/album/...
+  String artistLinks[MAX_ARTISTS];  // One link per artist
+
+  String contextLink = "";      // e.g., Liked Songs link
+
+  bool resumingDisallowed = false;
+};
+
 
 extern spotify_log_level_t _spotify_log_level;
 
@@ -76,6 +122,15 @@ namespace spotify_types {
   constexpr size_t SIZE_OF_SECRET_ID = 100;
   constexpr size_t SIZE_OF_REFRESH_TOKEN = 300;
 }
+
+struct CountryTZ {
+  const char* country;
+  const char* tz;
+};
+
+extern const CountryTZ tzTable[];
+extern const int TZ_COUNT;
+
 
 /// @brief Response object containing http status code and reply
 typedef struct{
@@ -687,7 +742,26 @@ class Spotify {
     /// @brief Set logging level
     /// @param spotify_log_level Spotify debug level
     void set_log_level(spotify_log_level_t spotify_log_level);
-    
+    /// @brief Get current playback time as string in format mm:ss
+    /// @return Current playback time as string in format mm:ss
+    String getCurrentTimeString();
+    /// @brief Convert millisecond epoch timestamp to formatted local date/time
+    /// @param timestamp_ms Timestamp in milliseconds
+    /// @param format strftime format string (default: "%Y-%m-%d %H:%M:%S")
+    /// @return Formatted local time as String
+    String epochToDateTime(unsigned long long timestamp_ms, const char* format = "%Y-%m-%d %H:%M:%S");
+    /// @brief Combine artist names into a single string
+    /// @param track SpotifyCurrentTrack object
+    /// @return Combined artist names as String
+    String getArtistNamesCombined(const SpotifyCurrentTrack& track);
+    /// @brief Parse current track information from JSON document
+    /// @param doc JSON document containing current track information
+    /// @param out SpotifyCurrentTrack object to store parsed information
+    /// @return true if parsing was successful
+    bool parseCurrentTrack(JsonDocument &doc, SpotifyCurrentTrack &out);
+
+
+
   private:
     static constexpr const char* _TAG = "Spotify";
 
@@ -819,6 +893,17 @@ class Spotify {
     /// @param rest_url URL to extract endpoint from
     /// @return Endpoint
     String extract_endpoint(const char* rest_url);
+    /// @brief Ask user for their country
+    /// @return Country
+    String askUserCountry();
+    /// @brief Find timezone for a given country
+    /// @param country Country to find timezone for
+    /// @return Timezone string or nullptr if not found
+    const char* findTimezoneForCountry(const String& country);
+    /// @brief Setup time interactively
+    /// @return true if time was set successfully
+    bool setupTimeInteractive();
+
     /// @brief Root CA for Spotify API
     const char* _spotify_root_ca PROGMEM = \
     "-----BEGIN CERTIFICATE-----\n"\
@@ -849,5 +934,6 @@ class Spotify {
     "chDYABPPTHPbqjc1qCmBaZx2vN4Ye5DUys/vZwP9BFohFrH/6j/f3IL16/RZkiMN\n"\
     "JCqVJUzKoZHm1Lesh3Sz8W2jmdv51b2EQJ8HmA==\n"\
     "-----END CERTIFICATE-----\n";
+
 };
 #endif
